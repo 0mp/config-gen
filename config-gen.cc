@@ -6,6 +6,7 @@ using namespace config::detail;
 class Schema
 {
 	UCLPtr obj;
+
 	public:
 	Schema(ucl_object_t *o) : obj(o) {}
 	std::string_view schema()
@@ -31,15 +32,15 @@ class Schema
 		Number
 	};
 
-	using TypeAdaptor = EnumAdaptor<Type, EnumValueMap<Enum{"object", Object},
-	                                                   Enum{"string", String},
-	                                                   Enum{"number", Number}>>;
+	using TypeAdaptor = EnumAdaptor<Type,
+	                                EnumValueMap<Enum{"object", Object},
+	                                             Enum{"string", String},
+	                                             Enum{"number", Number}>>;
 
 	Type type()
 	{
 		return TypeAdaptor(obj["type"]);
 	}
-
 
 	/*
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -48,10 +49,6 @@ class Schema
   "description": "A product in the catalog",
   "type": "object"
   */
-
 };
 
-int main()
-{
-}
-
+int main() {}
