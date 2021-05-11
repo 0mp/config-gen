@@ -44,7 +44,7 @@ namespace config::detail
 		{
 			return obj != o;
 		}
-		UCLPtr operator[](const char *key)
+		UCLPtr operator[](const char *key) const
 		{
 			return ucl_object_lookup(obj, key);
 		}

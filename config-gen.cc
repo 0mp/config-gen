@@ -100,18 +100,6 @@ namespace Schema
 		{
 			return StringViewAdaptor(obj["$id"]);
 		}
-
-		static Root parse(const char *filename)
-		{
-			struct ucl_parser *p =
-			  ucl_parser_new(UCL_PARSER_NO_IMPLICIT_ARRAYS);
-			ucl_parser_add_file(p, filename);
-			auto obj = ucl_parser_get_object(p);
-			ucl_parser_free(p);
-			Root root(obj);
-			ucl_object_unref(obj);
-			return root;
-		}
 	};
 } // namespace Schema
 
@@ -132,8 +120,12 @@ void emit_class(Object o, std::string_view name, T &out)
 			required_properties.insert(prop);
 		}
 	}
+	const char *configNamespace = "::config::detail::";
 
-	out << "class " << name << "{ UCLPtr obj; public:\n";
+	out << "class " << name << "{" << configNamespace
+	    << "UCLPtr obj; public:\n";
+
+	out << name << "(const ucl_object_t *o) : obj(o) {}\n";
 
 	for (auto prop : o.properties())
 	{
@@ -160,19 +152,23 @@ void emit_class(Object o, std::string_view name, T &out)
 
 		std::string_view return_type;
 		std::string_view adaptor;
-		bool             isInteger = false;
+		std::string      className;
+		bool             isInteger        = false;
+		std::string_view adaptorNamespace = configNamespace;
+		std::string_view lifetimeAttribute;
 		switch (prop.type())
 		{
 			case Schema::Object::TypeString:
 			{
-				return_type = "std::string_view";
-				adaptor     = "StringViewAdaptor";
+				return_type       = "std::string_view";
+				adaptor           = "StringViewAdaptor";
+				lifetimeAttribute = "[[clang::lifetimebound]]";
 				break;
 			}
 			case Schema::Object::TypeBool:
 			{
 				return_type = "bool";
-				adaptor     = "BoolAdaptor";
+				adaptor     = "booladaptor";
 				break;
 			}
 			case Schema::Object::TypeInteger:
@@ -231,21 +227,30 @@ void emit_class(Object o, std::string_view name, T &out)
 				break;
 			}
 			case Schema::Object::TypeObject:
+			{
+				className = method_name;
+				className += "Class";
+				emit_class(prop, className, types);
+				return_type      = className;
+				adaptor          = className;
+				adaptorNamespace = "";
 				break;
+			}
 		}
 		if (isRequired)
 		{
-			methods << return_type << ' ' << method_name
-			        << "() const [[clang::lifetimebound]] {";
-			methods << "return config::detail::" << adaptor << "(obj[\""
+			methods << return_type << ' ' << method_name << "() const "
+			        << lifetimeAttribute << " {"
+			        << "return " << adaptorNamespace << adaptor << "(obj[\""
 			        << prop_name << "\"]);}";
 		}
 		else
 		{
 			methods << "std::optional<" << return_type << "> " << method_name
-			        << "() const [[clang::lifetimebound]] {";
-			methods << "return config::detail::make_optional<config::detail::"
-			        << adaptor << ">(obj[\"" << prop_name << "\"]);}";
+			        << "() const " << lifetimeAttribute << " {"
+			        << "return config::detail::make_optional<"
+			        << adaptorNamespace << adaptor << ">(obj[\"" << prop_name
+			        << "\"]);}";
 		}
 		methods << "\n\n";
 	}
@@ -254,7 +259,7 @@ void emit_class(Object o, std::string_view name, T &out)
 	out << nested_classes.str();
 	out << methods.str();
 
-	out << "}\n";
+	out << "};\n";
 }
 
 int main(int argc, char **argv)
@@ -263,7 +268,56 @@ int main(int argc, char **argv)
 	{
 		return -1;
 	}
-	Root conf = Root::parse(argv[1]);
+	struct ucl_parser *p = ucl_parser_new(UCL_PARSER_NO_IMPLICIT_ARRAYS);
+	ucl_parser_add_file(p, argv[1]);
+	if (ucl_parser_get_error(p))
+	{
+		printf("Error occurred: %s\n", ucl_parser_get_error(p));
+		return EXIT_FAILURE;
+	}
 
+	auto obj = ucl_parser_get_object(p);
+	ucl_parser_free(p);
+	Root  conf(obj);
+	char *schemaCString =
+	  reinterpret_cast<char *>(ucl_object_emit(obj, UCL_EMIT_JSON_COMPACT));
+	std::string schema(schemaCString);
+	free(schemaCString);
+	// Escape as a C string:
+	auto replace = [&](std::string_view search, std::string_view replace) {
+		size_t pos = 0;
+		while ((pos = schema.find(search, pos)) != std::string::npos)
+		{
+			schema.replace(pos, search.length(), replace);
+			pos += replace.length();
+		}
+	};
+	replace("\\", "\\\\");
+	replace("\"", "\\\"");
+	replace("\n", "\\n");
+	ucl_object_unref(obj);
+
+	std::cout << "#include \"config-generic.h\"\n\n";
+	std::cout << "#include <variant>\n\n";
+	std::cout
+	  << "#ifdef CONFIG_NAMESPACE_BEGIN\nCONFIG_NAMESPACE_BEGIN\n#endif\n";
 	emit_class(conf, "Config", std::cout);
+	std::cout
+	  << "inline std::variant<Config, ucl_schema_error> "
+	     "make_config(ucl_object_t *obj) {"
+	  << "static const ucl_object_t *schema = []() {"
+	  << "static const char embeddedSchema[] = \"" << schema << "\";\n"
+	  << "struct ucl_parser *p = "
+	     "ucl_parser_new(UCL_PARSER_NO_IMPLICIT_ARRAYS);\n"
+	  << "ucl_parser_add_string(p, embeddedSchema, sizeof(embeddedSchema));\n"
+	  << "if (ucl_parser_get_error(p)) { std::terminate(); }\n"
+	  << "auto obj = ucl_parser_get_object(p);\n"
+	  << "ucl_parser_free(p);\n"
+	  << "return obj;\n"
+	  << "}();"
+	  << "ucl_schema_error err;\n"
+	  << "if (!ucl_object_validate(schema, obj, &err)) { return err; }"
+	  << "return Config(obj);\n"
+	  << "}\n\n"
+	  << "#ifdef CONFIG_NAMESPACE_END\nCONFIG_NAMESPACE_END\n#endif\n\n";
 }
