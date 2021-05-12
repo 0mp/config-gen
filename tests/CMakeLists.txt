@@ -8,19 +8,19 @@ find_program(CLANG_FORMAT
 	REQUIRED)
 
 set(TESTS
-	test_object.conf
+	test_type
+	test_object
 )
 
-foreach(TEST ${TESTS})
-	get_filename_component(TEST_NAME ${TEST} NAME)
-	string(REGEX REPLACE "[.]conf$" "" TEST_BIN ${TEST_NAME})
-	string(REGEX REPLACE "[.]conf$" ".cc" TEST_SRC ${TEST})
-	string(REGEX REPLACE "[.]conf$" ".h" TEST_HEADER ${TEST_NAME})
-	string(REGEX REPLACE "[.]conf$" ".conf.expected" TEST_EXPECTED ${TEST})
+foreach(TEST_NAME ${TESTS})
+	set(TEST_BIN ${TEST_NAME})
+	set(TEST_SRC "${TEST_NAME}.cc")
+	set(TEST_HEADER "${TEST_NAME}.h")
+	set(TEST_EXPECTED "${TEST_NAME}.conf.expected")
 	add_custom_command(OUTPUT ${TEST_HEADER}
-		COMMAND config-gen "${CMAKE_CURRENT_SOURCE_DIR}/${TEST}" "-o" ${TEST_HEADER}
+		COMMAND config-gen "${CMAKE_CURRENT_SOURCE_DIR}/${TEST_NAME}.conf" "-o" ${TEST_HEADER}
 		COMMENT "Generating test header ${TEST_HEADER}"
-		MAIN_DEPENDENCY ${TEST})
+		MAIN_DEPENDENCY "${TEST_NAME}.conf")
 	if (EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${TEST_SRC}")
 		add_executable(${TEST_BIN} ${TEST_SRC} "${CMAKE_CURRENT_BINARY_DIR}/${TEST_HEADER}")
 		target_include_directories(${TEST_BIN} PRIVATE ${UCL_INCLUDE_DIR} ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR})

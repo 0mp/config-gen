@@ -172,7 +172,7 @@ void emit_class(Object o, std::string_view name, T &out)
 			case Schema::Object::TypeBool:
 			{
 				return_type = "bool";
-				adaptor     = "booladaptor";
+				adaptor     = "BoolAdaptor";
 				break;
 			}
 			case Schema::Object::TypeInteger:
@@ -253,8 +253,8 @@ void emit_class(Object o, std::string_view name, T &out)
 			methods << "std::optional<" << return_type << "> " << method_name
 			        << "() const " << lifetimeAttribute << " {"
 			        << "return config::detail::make_optional<"
-			        << adaptorNamespace << adaptor << ">(obj[\"" << prop_name
-			        << "\"]);}";
+			        << adaptorNamespace << adaptor << ", " << return_type
+			        << ">(obj[\"" << prop_name << "\"]);}";
 		}
 		methods << "\n\n";
 	}

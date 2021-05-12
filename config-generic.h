@@ -275,8 +275,8 @@ namespace config::detail
 		}
 	};
 
-	template<typename Adaptor>
-	std::optional<Adaptor> make_optional(const ucl_object_t *o)
+	template<typename Adaptor, typename T = Adaptor>
+	std::optional<T> make_optional(const ucl_object_t *o)
 	{
 		if (o == nullptr)
 		{
