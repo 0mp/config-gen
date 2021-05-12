@@ -1,4 +1,6 @@
 #include "config-generic.h"
+#include <fstream>
+#include <getopt.h>
 #include <iostream>
 #include <sstream>
 #include <unordered_set>
@@ -268,8 +270,39 @@ int main(int argc, char **argv)
 	{
 		return -1;
 	}
+
+	std::unique_ptr<std::ofstream> file_out{nullptr};
+
+	const char *in_filename = argv[1];
+
+	static struct option long_options[] = {
+	  {"output", required_argument, nullptr, 'o'},
+	  {nullptr, 0, nullptr, 0},
+	};
+
+	if (argc > 2)
+	{
+		int c = -1;
+		int option_index;
+		while ((c = getopt_long(
+		          argc, argv, "o:", long_options, &option_index)) != -1)
+		{
+			switch (c)
+			{
+				case 'o':
+				{
+					std::cerr << optarg;
+					file_out = std::make_unique<std::ofstream>(optarg);
+					break;
+				}
+			}
+		}
+	}
+
+	std::ostream &out = file_out ? *file_out : std::cout;
+
 	struct ucl_parser *p = ucl_parser_new(UCL_PARSER_NO_IMPLICIT_ARRAYS);
-	ucl_parser_add_file(p, argv[1]);
+	ucl_parser_add_file(p, in_filename);
 	if (ucl_parser_get_error(p))
 	{
 		printf("Error occurred: %s\n", ucl_parser_get_error(p));
@@ -297,27 +330,25 @@ int main(int argc, char **argv)
 	replace("\n", "\\n");
 	ucl_object_unref(obj);
 
-	std::cout << "#include \"config-generic.h\"\n\n";
-	std::cout << "#include <variant>\n\n";
-	std::cout
-	  << "#ifdef CONFIG_NAMESPACE_BEGIN\nCONFIG_NAMESPACE_BEGIN\n#endif\n";
-	emit_class(conf, "Config", std::cout);
-	std::cout
-	  << "inline std::variant<Config, ucl_schema_error> "
-	     "make_config(ucl_object_t *obj) {"
-	  << "static const ucl_object_t *schema = []() {"
-	  << "static const char embeddedSchema[] = \"" << schema << "\";\n"
-	  << "struct ucl_parser *p = "
-	     "ucl_parser_new(UCL_PARSER_NO_IMPLICIT_ARRAYS);\n"
-	  << "ucl_parser_add_string(p, embeddedSchema, sizeof(embeddedSchema));\n"
-	  << "if (ucl_parser_get_error(p)) { std::terminate(); }\n"
-	  << "auto obj = ucl_parser_get_object(p);\n"
-	  << "ucl_parser_free(p);\n"
-	  << "return obj;\n"
-	  << "}();"
-	  << "ucl_schema_error err;\n"
-	  << "if (!ucl_object_validate(schema, obj, &err)) { return err; }"
-	  << "return Config(obj);\n"
-	  << "}\n\n"
-	  << "#ifdef CONFIG_NAMESPACE_END\nCONFIG_NAMESPACE_END\n#endif\n\n";
+	out << "#include \"config-generic.h\"\n\n";
+	out << "#include <variant>\n\n";
+	out << "#ifdef CONFIG_NAMESPACE_BEGIN\nCONFIG_NAMESPACE_BEGIN\n#endif\n";
+	emit_class(conf, "Config", out);
+	out << "inline std::variant<Config, ucl_schema_error> "
+	       "make_config(ucl_object_t *obj) {"
+	    << "static const ucl_object_t *schema = []() {"
+	    << "static const char embeddedSchema[] = \"" << schema << "\";\n"
+	    << "struct ucl_parser *p = "
+	       "ucl_parser_new(UCL_PARSER_NO_IMPLICIT_ARRAYS);\n"
+	    << "ucl_parser_add_string(p, embeddedSchema, sizeof(embeddedSchema));\n"
+	    << "if (ucl_parser_get_error(p)) { std::terminate(); }\n"
+	    << "auto obj = ucl_parser_get_object(p);\n"
+	    << "ucl_parser_free(p);\n"
+	    << "return obj;\n"
+	    << "}();"
+	    << "ucl_schema_error err;\n"
+	    << "if (!ucl_object_validate(schema, obj, &err)) { return err; }"
+	    << "return Config(obj);\n"
+	    << "}\n\n"
+	    << "#ifdef CONFIG_NAMESPACE_END\nCONFIG_NAMESPACE_END\n#endif\n\n";
 }
