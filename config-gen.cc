@@ -20,6 +20,7 @@ namespace Schema
 		{
 			TypeObject,
 			TypeString,
+			TypeArray,
 			TypeNumber,
 			TypeInteger,
 			TypeBool,
@@ -28,6 +29,7 @@ namespace Schema
 		using TypeAdaptor =
 		  EnumAdaptor<Type,
 		              EnumValueMap<Enum{"object", TypeObject},
+		                           Enum{"array", TypeArray},
 		                           Enum{"string", TypeString},
 		                           Enum{"integer", TypeInteger},
 		                           Enum{"boolean", TypeBool},
