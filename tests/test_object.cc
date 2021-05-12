@@ -32,8 +32,9 @@ int main()
 	if (std::holds_alternative<ucl_schema_error>(confOrError))
 	{
 		auto &err = std::get<ucl_schema_error>(confOrError);
-		std::cerr << "Schema validation failed " << err.msg
-		          << (char *)ucl_object_emit(err.obj, UCL_EMIT_CONFIG);
+		std::cerr << "Schema validation failed " << err.msg << std::endl
+		          << (char *)ucl_object_emit(err.obj, UCL_EMIT_CONFIG)
+		          << std::endl;
 		return EXIT_FAILURE;
 	}
 	auto conf = get<Config>(confOrError);
