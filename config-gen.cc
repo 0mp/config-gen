@@ -41,6 +41,14 @@ namespace Schema
 			return TypeAdaptor(obj["type"]);
 		}
 
+		using TypeAdaptorTest =
+		  NamedTypeAdaptor<"type", NamedType<"object", Object>>;
+
+		TypeAdaptorTest getAsTypeAdaptor()
+		{
+			return TypeAdaptorTest(obj);
+		}
+
 		std::string_view title()
 		{
 			return StringViewAdaptor(obj["title"]);
@@ -167,6 +175,7 @@ void emit_class(Object o, std::string_view name, T &out)
 				return_type       = "std::string_view";
 				adaptor           = "StringViewAdaptor";
 				lifetimeAttribute = "[[clang::lifetimebound]]";
+				std::cerr << "Testing visitor thing!\n";
 				break;
 			}
 			case Schema::Object::TypeBool:
@@ -240,6 +249,8 @@ void emit_class(Object o, std::string_view name, T &out)
 				adaptorNamespace = "";
 				break;
 			}
+			case Schema::Object::TypeArray:
+				break;
 		}
 		if (isRequired)
 		{

@@ -140,7 +140,12 @@ namespace config::detail
 		StringViewAdaptor(const ucl_object_t *o) : obj(o) {}
 		operator std::string_view()
 		{
-			return ucl_object_tostring(obj);
+			const char *cstr = ucl_object_tostring(obj);
+			if (cstr != nullptr)
+			{
+				return cstr;
+			}
+			return std::string_view("", 0);
 		}
 	};
 
@@ -191,7 +196,12 @@ namespace config::detail
 		{
 			std::copy_n(str, N, value);
 		}
-		operator std::string_view()
+		operator std::string_view() const
+		{
+			// Strip out the null terminator
+			return {value, N - 1};
+		}
+		operator const char *() const
 		{
 			return value;
 		}
@@ -261,6 +271,67 @@ namespace config::detail
 		operator EnumType()
 		{
 			return Map::get(ucl_object_tostring(obj));
+		}
+	};
+
+	template<StringLiteral Key, typename Adaptor>
+	struct NamedType
+	{
+		static Adaptor construct(const ucl_object_t *obj)
+		{
+			return Adaptor{obj};
+		}
+
+		static constexpr std::string_view key()
+		{
+			return Key;
+		}
+	};
+
+	template<StringLiteral KeyName, typename... Types>
+	class NamedTypeAdaptor
+	{
+		UCLPtr obj;
+		using TypesAsTuple = std::tuple<Types...>;
+		template<typename T, size_t I = 0>
+		constexpr void visit_impl(std::string_view key, T &&v)
+		{
+			if (key == std::tuple_element_t<I, TypesAsTuple>::key())
+			{
+				return v(std::tuple_element_t<I, TypesAsTuple>::construct(obj));
+			}
+			if constexpr (I + 1 < std::tuple_size_v<TypesAsTuple>)
+			{
+				return visit_impl<T, I + 1>(key, std::forward<T &&>(v));
+			}
+		}
+
+		template<class... Fs>
+		struct Dispatcher : Fs...
+		{
+			template<class... Ts>
+			Dispatcher(Ts &&...ts) : Fs{std::forward<Ts>(ts)}...
+			{
+			}
+
+			using Fs::operator()...;
+		};
+		template<class... Ts>
+		Dispatcher(Ts &&...) -> Dispatcher<std::remove_reference_t<Ts>...>;
+
+		public:
+		NamedTypeAdaptor(const ucl_object_t *o) : obj(o) {}
+		template<typename... Visitors>
+		void visit(Visitors &&...visitors)
+		{
+			visit_impl(StringViewAdaptor(obj[KeyName]),
+			           Dispatcher{visitors...});
+		}
+		template<typename... Visitors>
+		void visit_some(Visitors &&...visitors)
+		{
+			visit_impl(StringViewAdaptor(obj[KeyName]),
+			           Dispatcher{visitors..., [](auto &&) {}});
 		}
 	};
 
