@@ -322,16 +322,16 @@ namespace config::detail
 		public:
 		NamedTypeAdaptor(const ucl_object_t *o) : obj(o) {}
 		template<typename... Visitors>
-		void visit(Visitors &&...visitors)
+		auto visit(Visitors &&...visitors)
 		{
-			visit_impl(StringViewAdaptor(obj[KeyName]),
-			           Dispatcher{visitors...});
+			return visit_impl(StringViewAdaptor(obj[KeyName]),
+			                  Dispatcher{visitors...});
 		}
 		template<typename... Visitors>
-		void visit_some(Visitors &&...visitors)
+		auto visit_some(Visitors &&...visitors)
 		{
-			visit_impl(StringViewAdaptor(obj[KeyName]),
-			           Dispatcher{visitors..., [](auto &&) {}});
+			return visit_impl(StringViewAdaptor(obj[KeyName]),
+			                  Dispatcher{visitors..., [](auto &&) {}});
 		}
 	};
 

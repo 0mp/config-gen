@@ -159,149 +159,184 @@ namespace Schema
 
 using namespace Schema;
 
-template<typename T>
-void emit_class(Object o, std::string_view name, T &out)
+namespace
 {
-	std::stringstream                    types;
-	std::stringstream                    methods;
-	std::stringstream                    nested_classes;
-	std::unordered_set<std::string_view> required_properties;
-
-	if (auto required = o.required())
-	{
-		for (auto prop : *required)
-		{
-			required_properties.insert(prop);
-		}
-	}
 	const char *configNamespace = "::config::detail::";
-
-	out << "class " << name << "{" << configNamespace
-	    << "UCLPtr obj; public:\n";
-
-	out << name << "(const ucl_object_t *o) : obj(o) {}\n";
-
-	for (auto prop : o.properties())
+	template<typename T>
+	void emit_class(Object o, std::string_view name, T &out);
+	struct SchemaVisitor
 	{
-		std::string_view prop_name   = prop.key();
-		std::string_view method_name = prop_name;
-
-		std::string method_name_buffer;
-
-		bool isRequired = required_properties.contains(prop_name);
-
-		// FIXME: Do a proper regex match
-		if (method_name.find('-') != std::string::npos)
+		std::string_view   return_type;
+		std::string_view   adaptor;
+		std::string        className;
+		std::string_view   adaptorNamespace = configNamespace;
+		std::string_view   lifetimeAttribute;
+		std::string_view   name;
+		std::stringstream &types;
+		SchemaVisitor(std::string_view n, std::stringstream &t)
+		  : name(n), types(t)
 		{
-			method_name_buffer = method_name;
-			std::replace(
-			  method_name_buffer.begin(), method_name_buffer.end(), '-', '_');
-			method_name = method_name_buffer;
 		}
 
-		if (auto description = prop.description())
+		void handleNumber(Number &num, bool isInteger)
 		{
-			methods << "\n/** " << *description << " */\n";
+			if (!isInteger)
+			{
+				auto multipleOf = num.multipleOf();
+				if (multipleOf)
+				{
+					isInteger =
+					  (((double)(uint64_t)*multipleOf) == *multipleOf);
+				}
+			}
+			if (!isInteger)
+			{
+				return_type = "double";
+				adaptor     = "DoubleAdaptor";
+				return;
+			}
+			int64_t min = std::numeric_limits<int64_t>::min();
+			int64_t max = std::numeric_limits<int64_t>::max();
+			min =
+			  std::max(min, static_cast<int64_t>(num.minimum().value_or(min)));
+			min = std::max(
+			  min, static_cast<int64_t>(num.exclusiveMinimum().value_or(min)));
+			max =
+			  std::min(max, static_cast<int64_t>(num.maximum().value_or(max)));
+			max = std::min(
+			  max, static_cast<int64_t>(num.exclusiveMaximum().value_or(max)));
+			auto try_type =
+			  [&](auto intty, std::string_view ty, std::string_view a) {
+				  if ((min >= std::numeric_limits<decltype(intty)>::min()) &&
+				      (max <= std::numeric_limits<decltype(intty)>::max()))
+				  {
+					  return_type = ty;
+					  adaptor     = a;
+				  }
+			  };
+			try_type(int64_t(), "int64_t", "Int64Adaptor");
+			try_type(uint64_t(), "uint64_t", "UInt64Adaptor");
+			try_type(int32_t(), "int32_t", "Int32Adaptor");
+			try_type(uint32_t(), "uint32_t", "UInt32Adaptor");
+			try_type(int16_t(), "int16_t", "Int16Adaptor");
+			try_type(uint16_t(), "uint16_t", "UInt16Adaptor");
+			try_type(int8_t(), "int8_t", "Int8Adaptor");
+			try_type(uint8_t(), "uint8_t", "UInt8Adaptor");
 		}
 
-		std::string_view return_type;
-		std::string_view adaptor;
-		std::string      className;
-		bool             isInteger        = false;
-		std::string_view adaptorNamespace = configNamespace;
-		std::string_view lifetimeAttribute;
-		auto             handleNumber = [&](Number &num, bool isInteger) {
-            if (!isInteger)
-            {
-                auto multipleOf = num.multipleOf();
-                if (multipleOf)
-                {
-                    isInteger =
-                      (((double)(uint64_t)*multipleOf) == *multipleOf);
-                }
-            }
-            if (!isInteger)
-            {
-                return_type = "double";
-                adaptor     = "DoubleAdaptor";
-                return;
-            }
-            int64_t min = std::numeric_limits<int64_t>::min();
-            int64_t max = std::numeric_limits<int64_t>::max();
-            min =
-              std::max(min, static_cast<int64_t>(num.minimum().value_or(min)));
-            min = std::max(
-              min, static_cast<int64_t>(num.exclusiveMinimum().value_or(min)));
-            max =
-              std::min(max, static_cast<int64_t>(num.maximum().value_or(max)));
-            max = std::min(
-              max, static_cast<int64_t>(num.exclusiveMaximum().value_or(max)));
-            auto try_type =
-              [&](auto intty, std::string_view ty, std::string_view a) {
-                  if ((min >= std::numeric_limits<decltype(intty)>::min()) &&
-                      (max <= std::numeric_limits<decltype(intty)>::max()))
-                  {
-                      return_type = ty;
-                      adaptor     = a;
-                  }
-              };
-            try_type(int64_t(), "int64_t", "Int64Adaptor");
-            try_type(uint64_t(), "uint64_t", "UInt64Adaptor");
-            try_type(int32_t(), "int32_t", "Int32Adaptor");
-            try_type(uint32_t(), "uint32_t", "UInt32Adaptor");
-            try_type(int16_t(), "int16_t", "Int16Adaptor");
-            try_type(uint16_t(), "uint16_t", "UInt16Adaptor");
-            try_type(int8_t(), "int8_t", "Int8Adaptor");
-            try_type(uint8_t(), "uint8_t", "UInt8Adaptor");
-		};
-		prop.get().visit(
-		  [&](String) {
-			  return_type       = "std::string_view";
-			  adaptor           = "StringViewAdaptor";
-			  lifetimeAttribute = "[[clang::lifetimebound]]";
-		  },
-		  [&](Boolean) {
-			  return_type = "bool";
-			  adaptor     = "BoolAdaptor";
-		  },
-		  [&](Integer i) {
-			  handleNumber(i, true);
-			  isInteger = true;
-		  },
-		  [&](Number n) { handleNumber(n, false); },
-		  [&](Object o) {
-			  className = method_name;
-			  className += "Class";
-			  emit_class(o, className, types);
-			  return_type      = className;
-			  adaptor          = className;
-			  adaptorNamespace = "";
-		  },
-		  [&](Array) { assert(0 && "not implemented"); });
-		if (isRequired)
+		void operator()(String)
 		{
-			methods << return_type << ' ' << method_name << "() const "
-			        << lifetimeAttribute << " {"
-			        << "return " << adaptorNamespace << adaptor << "(obj[\""
-			        << prop_name << "\"]);}";
+			return_type       = "std::string_view";
+			adaptor           = "StringViewAdaptor";
+			lifetimeAttribute = "[[clang::lifetimebound]]";
 		}
-		else
+
+		void operator()(Boolean)
 		{
-			methods << "std::optional<" << return_type << "> " << method_name
-			        << "() const " << lifetimeAttribute << " {"
-			        << "return config::detail::make_optional<"
-			        << adaptorNamespace << adaptor << ", " << return_type
-			        << ">(obj[\"" << prop_name << "\"]);}";
+			return_type = "bool";
+			adaptor     = "BoolAdaptor";
 		}
-		methods << "\n\n";
+
+		void operator()(Integer i)
+		{
+			handleNumber(i, true);
+		}
+
+		void operator()(Number n)
+		{
+			handleNumber(n, false);
+		}
+
+		void operator()(Object o)
+		{
+			className = name;
+			className += "Class";
+			emit_class(o, className, types);
+			return_type      = className;
+			adaptor          = className;
+			adaptorNamespace = "";
+		}
+
+		void operator()(Array)
+		{
+			assert(0 && "not implemented");
+		}
+	};
+
+	template<typename T>
+	void emit_class(Object o, std::string_view name, T &out)
+	{
+		std::stringstream                    types;
+		std::stringstream                    methods;
+		std::stringstream                    nested_classes;
+		std::unordered_set<std::string_view> required_properties;
+
+		if (auto required = o.required())
+		{
+			for (auto prop : *required)
+			{
+				required_properties.insert(prop);
+			}
+		}
+
+		out << "class " << name << "{" << configNamespace
+		    << "UCLPtr obj; public:\n";
+
+		out << name << "(const ucl_object_t *o) : obj(o) {}\n";
+
+		for (auto prop : o.properties())
+		{
+			std::string_view prop_name   = prop.key();
+			std::string_view method_name = prop_name;
+
+			std::string method_name_buffer;
+
+			bool isRequired = required_properties.contains(prop_name);
+
+			// FIXME: Do a proper regex match
+			if (method_name.find('-') != std::string::npos)
+			{
+				method_name_buffer = method_name;
+				std::replace(method_name_buffer.begin(),
+				             method_name_buffer.end(),
+				             '-',
+				             '_');
+				method_name = method_name_buffer;
+			}
+
+			if (auto description = prop.description())
+			{
+				methods << "\n/** " << *description << " */\n";
+			}
+
+			SchemaVisitor v(method_name, types);
+			prop.get().visit(v);
+			if (isRequired)
+			{
+				methods << v.return_type << ' ' << method_name << "() const "
+				        << v.lifetimeAttribute << " {"
+				        << "return " << v.adaptorNamespace << v.adaptor
+				        << "(obj[\"" << prop_name << "\"]);}";
+			}
+			else
+			{
+				methods << "std::optional<" << v.return_type << "> "
+				        << method_name << "() const " << v.lifetimeAttribute
+				        << " {"
+				        << "return config::detail::make_optional<"
+				        << v.adaptorNamespace << v.adaptor << ", "
+				        << v.return_type << ">(obj[\"" << prop_name << "\"]);}";
+			}
+			methods << "\n\n";
+		}
+
+		out << types.str();
+		out << nested_classes.str();
+		out << methods.str();
+
+		out << "};\n";
 	}
-
-	out << types.str();
-	out << nested_classes.str();
-	out << methods.str();
-
-	out << "};\n";
-}
+} // namespace
 
 int main(int argc, char **argv)
 {
