@@ -10,12 +10,33 @@ using namespace config::detail;
 
 namespace Schema
 {
-	class Object
+	struct Object;
+	struct Array;
+	struct String;
+	struct Integer;
+	struct Boolean;
+	struct Number;
+
+	class SchemaBase
 	{
 		protected:
 		UCLPtr obj;
 
 		public:
+		SchemaBase(const ucl_object_t *o) : obj(o) {}
+		using TypeAdaptor = NamedTypeAdaptor<"type",
+		                                     NamedType<"object", Object>,
+		                                     NamedType<"array", Array>,
+		                                     NamedType<"string", String>,
+		                                     NamedType<"integer", Integer>,
+		                                     NamedType<"boolean", Boolean>,
+		                                     NamedType<"number", Number>>;
+
+		TypeAdaptor get()
+		{
+			return TypeAdaptor(obj);
+		}
+
 		enum Type
 		{
 			TypeObject,
@@ -26,7 +47,7 @@ namespace Schema
 			TypeBool,
 		};
 
-		using TypeAdaptor =
+		using TypeEnumAdaptor =
 		  EnumAdaptor<Type,
 		              EnumValueMap<Enum{"object", TypeObject},
 		                           Enum{"array", TypeArray},
@@ -35,18 +56,9 @@ namespace Schema
 		                           Enum{"boolean", TypeBool},
 		                           Enum{"number", TypeNumber}>>;
 
-		Object(const ucl_object_t *o) : obj(o) {}
 		Type type()
 		{
-			return TypeAdaptor(obj["type"]);
-		}
-
-		using TypeAdaptorTest =
-		  NamedTypeAdaptor<"type", NamedType<"object", Object>>;
-
-		TypeAdaptorTest getAsTypeAdaptor()
-		{
-			return TypeAdaptorTest(obj);
+			return TypeEnumAdaptor(obj["type"]);
 		}
 
 		std::string_view title()
@@ -58,21 +70,21 @@ namespace Schema
 		{
 			return make_optional<StringViewAdaptor>(obj["description"]);
 		}
+	};
 
-		using Properties =
-		  Range<PropertyAdaptor<Object>, PropertyAdaptor<Object>, true>;
+	struct Array : public SchemaBase
+	{
+		using SchemaBase::SchemaBase;
+	};
 
-		Properties properties()
-		{
-			return Properties(obj["properties"]);
-		}
+	struct String : public SchemaBase
+	{
+		using SchemaBase::SchemaBase;
+	};
 
-		std::optional<Range<std::string_view, StringViewAdaptor>> required()
-		{
-			return make_optional<Range<std::string_view, StringViewAdaptor>>(
-			  obj["required"]);
-		}
-
+	struct Number : public SchemaBase
+	{
+		using SchemaBase::SchemaBase;
 		std::optional<double> minimum()
 		{
 			return make_optional<DoubleAdaptor>(obj["minimum"]);
@@ -96,6 +108,36 @@ namespace Schema
 		std::optional<double> multipleOf()
 		{
 			return make_optional<DoubleAdaptor>(obj["multipleOf"]);
+		}
+	};
+
+	struct Integer : public Number
+	{
+		using Number::Number;
+	};
+
+	struct Boolean : public SchemaBase
+	{
+		using SchemaBase::SchemaBase;
+	};
+
+	struct Object : public SchemaBase
+	{
+		public:
+		using SchemaBase::SchemaBase;
+
+		using Properties =
+		  Range<PropertyAdaptor<SchemaBase>, PropertyAdaptor<SchemaBase>, true>;
+
+		Properties properties()
+		{
+			return Properties(obj["properties"]);
+		}
+
+		std::optional<Range<std::string_view, StringViewAdaptor>> required()
+		{
+			return make_optional<Range<std::string_view, StringViewAdaptor>>(
+			  obj["required"]);
 		}
 	};
 
@@ -168,90 +210,74 @@ void emit_class(Object o, std::string_view name, T &out)
 		bool             isInteger        = false;
 		std::string_view adaptorNamespace = configNamespace;
 		std::string_view lifetimeAttribute;
-		switch (prop.type())
-		{
-			case Schema::Object::TypeString:
-			{
-				return_type       = "std::string_view";
-				adaptor           = "StringViewAdaptor";
-				lifetimeAttribute = "[[clang::lifetimebound]]";
-				std::cerr << "Testing visitor thing!\n";
-				break;
-			}
-			case Schema::Object::TypeBool:
-			{
-				return_type = "bool";
-				adaptor     = "BoolAdaptor";
-				break;
-			}
-			case Schema::Object::TypeInteger:
-			{
-				isInteger = true;
-				[[clang::fallthrough]];
-			}
-			case Schema::Object::TypeNumber:
-			{
-				if (!isInteger)
-				{
-					auto multipleOf = prop.multipleOf();
-					if (multipleOf)
-					{
-						isInteger =
-						  (((double)(uint64_t)*multipleOf) == *multipleOf);
-					}
-				}
-				if (!isInteger)
-				{
-					return_type = "double";
-					adaptor     = "DoubleAdaptor";
-					break;
-				}
-				int64_t min = std::numeric_limits<int64_t>::min();
-				int64_t max = std::numeric_limits<int64_t>::max();
-				min         = std::max(
-                  min, static_cast<int64_t>(prop.minimum().value_or(min)));
-				min = std::max(
-				  min,
-				  static_cast<int64_t>(prop.exclusiveMinimum().value_or(min)));
-				max = std::min(
-				  max, static_cast<int64_t>(prop.maximum().value_or(max)));
-				max = std::min(
-				  max,
-				  static_cast<int64_t>(prop.exclusiveMaximum().value_or(max)));
-				auto try_type = [&](auto             intty,
-				                    std::string_view ty,
-				                    std::string_view a) {
-					if ((min >= std::numeric_limits<decltype(intty)>::min()) &&
-					    (max <= std::numeric_limits<decltype(intty)>::max()))
-					{
-						return_type = ty;
-						adaptor     = a;
-					}
-				};
-				try_type(int64_t(), "int64_t", "Int64Adaptor");
-				try_type(uint64_t(), "uint64_t", "UInt64Adaptor");
-				try_type(int32_t(), "int32_t", "Int32Adaptor");
-				try_type(uint32_t(), "uint32_t", "UInt32Adaptor");
-				try_type(int16_t(), "int16_t", "Int16Adaptor");
-				try_type(uint16_t(), "uint16_t", "UInt16Adaptor");
-				try_type(int8_t(), "int8_t", "Int8Adaptor");
-				try_type(uint8_t(), "uint8_t", "UInt8Adaptor");
-
-				break;
-			}
-			case Schema::Object::TypeObject:
-			{
-				className = method_name;
-				className += "Class";
-				emit_class(prop, className, types);
-				return_type      = className;
-				adaptor          = className;
-				adaptorNamespace = "";
-				break;
-			}
-			case Schema::Object::TypeArray:
-				break;
-		}
+		auto             handleNumber = [&](Number &num, bool isInteger) {
+            if (!isInteger)
+            {
+                auto multipleOf = num.multipleOf();
+                if (multipleOf)
+                {
+                    isInteger =
+                      (((double)(uint64_t)*multipleOf) == *multipleOf);
+                }
+            }
+            if (!isInteger)
+            {
+                return_type = "double";
+                adaptor     = "DoubleAdaptor";
+                return;
+            }
+            int64_t min = std::numeric_limits<int64_t>::min();
+            int64_t max = std::numeric_limits<int64_t>::max();
+            min =
+              std::max(min, static_cast<int64_t>(num.minimum().value_or(min)));
+            min = std::max(
+              min, static_cast<int64_t>(num.exclusiveMinimum().value_or(min)));
+            max =
+              std::min(max, static_cast<int64_t>(num.maximum().value_or(max)));
+            max = std::min(
+              max, static_cast<int64_t>(num.exclusiveMaximum().value_or(max)));
+            auto try_type =
+              [&](auto intty, std::string_view ty, std::string_view a) {
+                  if ((min >= std::numeric_limits<decltype(intty)>::min()) &&
+                      (max <= std::numeric_limits<decltype(intty)>::max()))
+                  {
+                      return_type = ty;
+                      adaptor     = a;
+                  }
+              };
+            try_type(int64_t(), "int64_t", "Int64Adaptor");
+            try_type(uint64_t(), "uint64_t", "UInt64Adaptor");
+            try_type(int32_t(), "int32_t", "Int32Adaptor");
+            try_type(uint32_t(), "uint32_t", "UInt32Adaptor");
+            try_type(int16_t(), "int16_t", "Int16Adaptor");
+            try_type(uint16_t(), "uint16_t", "UInt16Adaptor");
+            try_type(int8_t(), "int8_t", "Int8Adaptor");
+            try_type(uint8_t(), "uint8_t", "UInt8Adaptor");
+		};
+		prop.get().visit(
+		  [&](String) {
+			  return_type       = "std::string_view";
+			  adaptor           = "StringViewAdaptor";
+			  lifetimeAttribute = "[[clang::lifetimebound]]";
+		  },
+		  [&](Boolean) {
+			  return_type = "bool";
+			  adaptor     = "BoolAdaptor";
+		  },
+		  [&](Integer i) {
+			  handleNumber(i, true);
+			  isInteger = true;
+		  },
+		  [&](Number n) { handleNumber(n, false); },
+		  [&](Object o) {
+			  className = method_name;
+			  className += "Class";
+			  emit_class(o, className, types);
+			  return_type      = className;
+			  adaptor          = className;
+			  adaptorNamespace = "";
+		  },
+		  [&](Array) { assert(0 && "not implemented"); });
 		if (isRequired)
 		{
 			methods << return_type << ' ' << method_name << "() const "
