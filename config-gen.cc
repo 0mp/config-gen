@@ -310,7 +310,7 @@ namespace
 			}
 
 			SchemaVisitor v(method_name, types);
-			prop.get().visit(v);
+			prop.get().visit([&](auto &&p) { v(p); });
 			if (isRequired)
 			{
 				methods << v.return_type << ' ' << method_name << "() const "
