@@ -272,7 +272,7 @@ namespace
 			items.get().visit([&](auto &&p) {
 				item(p);
 			});
-			className = "Range<";
+			className = "config::detail::Range<";
 			className += item.return_type;
 			className += ", ";
 			className += item.adaptor;
