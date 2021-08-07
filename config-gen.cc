@@ -75,6 +75,12 @@ namespace Schema
 	struct Array : public SchemaBase
 	{
 		using SchemaBase::SchemaBase;
+		SchemaBase items()
+		{
+			// FIXME: This only handles arrays that are arrays.
+			// For config files, 
+			return SchemaBase(obj["items"]);
+		}
 	};
 
 	struct String : public SchemaBase
@@ -257,9 +263,23 @@ namespace
 			adaptorNamespace = "";
 		}
 
-		void operator()(Array)
+		void operator()(Array a)
 		{
-			assert(0 && "not implemented");
+			std::string itemName{name};
+			itemName += "Item";
+			SchemaVisitor item(itemName, types);
+			auto items = a.items();
+			items.get().visit([&](auto &&p) {
+				item(p);
+			});
+			className = "Range<";
+			className += item.return_type;
+			className += ", ";
+			className += item.adaptor;
+			className += ", true>";
+			return_type = className;
+			adaptor = className;
+			adaptorNamespace = "";
 		}
 	};
 
